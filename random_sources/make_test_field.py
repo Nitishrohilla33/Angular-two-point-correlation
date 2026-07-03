@@ -12,7 +12,7 @@ import numpy as np
 from astropy.io import fits 
 from astropy.wcs import WCS
 
-rng = np.random.default_rng(0)
+rng = np.random.default_rng(42)
 
 NY, NX = 600, 600
 pixel_scale, ZP_AB = 0.063, 25.94

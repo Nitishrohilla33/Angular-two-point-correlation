@@ -96,6 +96,30 @@ def mag_to_counts(mag_ab, zeropoint_ab):
     """Convert an AB magnitude to image counts gives the imaze zeropoints."""
     return 10 ** (-0.4*(mag_ab - zeropoint_ab))
 
+def get_psf_kernel(psf_fwhm_pix=None, psf_file=None):
+    """
+    Return a normalized PSF kernel.
+
+    Parameters
+    ----------
+    psf_fwhm_pix : float
+        Gaussian PSF FWHM in pixels.
+
+    psf_file : str or None
+        FITS file containing an empirical PSF.
+
+    Returns
+    -------
+    psf_kernel : ndarray or Kernel2D
+    """
+
+    if psf_file is not None:
+        psf = fits.getdata(psf_file).astype(float)
+        psf /= psf.sum()
+        return psf
+
+    return Gaussian2DKernel(x_stddev=psf_fwhm_pix / 2.3548)
+
 # Injection into the real science image
 def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
                          n_sources, z_drop, M_UV_range, rng, stamp_size=41):
@@ -135,7 +159,10 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
     thetas = rng.uniform(0, np.pi, size=n_sources)
 
     truth = np.zeros(n_sources, dtype=[("x", "f8"), ("y", "f8"), ("mag", "f8"), ("M_UV", "f8")])
-    psf_kernel = Gaussian2DKernel(x_stddev=psf_fwhm_pix/2.3548)
+    # in case you have ...PSF.fits file available then replace in with 
+    # psf_fwhm_pix = "...PSF.fits"
+    psf_kernel = get_psf_kernel(psf_fwhm_pix=psf_fwhm_pix)
+
 
     half = stamp_size // 2
     for i in range(n_sources):
@@ -151,17 +178,18 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
             truth[i] = (x_c, y_c, np.nan, M_UVs[i])
             continue
 
-        mag_app = build_sed(z_drop, {"this_band": 1.0}, M_UVs[i])["this_band"]
+        mag_app = build_sed(z_drop, {"F277W": 2.77}, M_UVs[i])["F277W"]
         # NOTE: "this_band" wavelength is a placeholder of 1.0 micron;
         # callers handling multiple real bands should call build_sed
         # once per band with real pivott wavelenghts instead. Kept
         # simple here since this function injects into a single
         # detection-band image at a time (see run_pipeline.py).
         flux_counts = mag_to_counts(mag_app, zeropoint_ab)
+   
 
         stamp = make_sersic_stemp(stamp_size, r_effs[i], n_sersics[i],
                                    ellips[i], thetas[i], flux_counts)
-        stamp = convolve_fft(stamp, psf_kernel, boundary="fill", fill_value=0.0)
+        stamp = convolve_fft(stamp, psf_kernel, normalize_kernel=True, boundary="fill", fill_value=0.0)
 
         # clip stamp to valid array region (handkes edge sources)
         sx_lo, sy_lo = max(0, -x_lo), max(0, -y_lo) 
@@ -169,5 +197,10 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
         ax_hi, ay_hi = min(nx, x_hi), min(ny, y_hi)
         sx_hi, sy_hi = sx_lo + (ax_hi - ax_lo), sy_lo + (ay_hi - ay_lo)
         injected_data[ay_lo:ay_hi, ax_lo:ax_hi] += stamp[sy_lo:sy_hi, sx_lo:sx_hi]
+        # debug print 
+        # if i == 0:
+        #     print("Stamp total flux =", stamp.sum())
+        #     print("Stamp peak =", stamp.max())
         truth[i] = (x_c, y_c, mag_app, M_UVs[i])
+
     return injected_data, truth    
