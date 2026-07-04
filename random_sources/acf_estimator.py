@@ -14,9 +14,7 @@ from scipy.integrate import quad
 from scipy.optimize import minimize_scalar
 
 
-# ---------------------------------------------------------------------
 # Step C.1: Pair counts in angular separation bins
-# ---------------------------------------------------------------------
 def pair_counts(ra1, dec1, ra2, dec2, theta_bins_arcsec, same_catalog=False):
     """
     Count pairs between two catalogs (or within one catalog if
@@ -62,9 +60,7 @@ def pair_counts(ra1, dec1, ra2, dec2, theta_bins_arcsec, same_catalog=False):
     return counts
 
 
-# ---------------------------------------------------------------------
 # Step C.2: Landy-Szalay estimator
-# ---------------------------------------------------------------------
 def landy_szalay(DD, DR, RR, n_data, n_rand):
     """
     Standard Landy & Szalay (1993) estimator, with the customary
@@ -85,39 +81,56 @@ def landy_szalay(DD, DR, RR, n_data, n_rand):
         w = (DD_norm - 2 * DR_norm + RR_norm) / RR_norm
     return w
 
-
-# ---------------------------------------------------------------------
 # Step C.3: Bootstrap error estimation (Ling, Frenk & Barrow 1986)
-# ---------------------------------------------------------------------
-def bootstrap_errors(ra, dec, ra_r, dec_r, theta_bins_arcsec, n_boot=200, rng=None):
+from joblib import Parallel, delayed
+
+def _one_bootstrap(seed, ra, dec, ra_r, dec_r, theta_bins_arcsec, RR, n_data, n_rand):
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, n_data, size=n_data)
+    ra_b, dec_b = ra[idx], dec[idx]
+
+    DD = pair_counts(ra_b, dec_b, ra_b, dec_b, theta_bins_arcsec, same_catalog=True)
+    DR = pair_counts(ra_b, dec_b, ra_r, dec_r, theta_bins_arcsec)
+
+    return landy_szalay(DD, DR, RR, n_data, n_rand)
+
+
+def bootstrap_errors(ra, dec, ra_r, dec_r, theta_bins_arcsec, n_boot=200, rng=None, n_jobs=-1):
     """
     Bootstrap-resample the data catalog (with replacement) n_boot
     times, recomputing w(theta) each time, and return the standard
     deviation across resamples as the per-bin error estimate.
+
+    RR is computed once outside the loop since ra_r/dec_r (the random
+    catalog) is never resampled here -- only the data catalog is.
+    Bootstrap realizations are independent, so they're parallelized
+    across cores with joblib.
     """
     if rng is None:
         rng = np.random.default_rng()
 
     n_data = len(ra)
     n_rand = len(ra_r)
-    w_samples = np.zeros((n_boot, len(theta_bins_arcsec) - 1))
 
-    for b in range(n_boot):
-        idx = rng.integers(0, n_data, size=n_data)
-        ra_b, dec_b = ra[idx], dec[idx]
+    # RR is fixed across all bootstrap iterations -- compute once
+    RR = pair_counts(ra_r, dec_r, ra_r, dec_r, theta_bins_arcsec, same_catalog=True)
 
-        DD = pair_counts(ra_b, dec_b, ra_b, dec_b, theta_bins_arcsec, same_catalog=True)
-        DR = pair_counts(ra_b, dec_b, ra_r, dec_r, theta_bins_arcsec)
-        RR = pair_counts(ra_r, dec_r, ra_r, dec_r, theta_bins_arcsec, same_catalog=True)
+    # independent seeds per iteration, drawn from the passed-in rng so
+    # the whole run stays reproducible if you seed rng upstream
+    seeds = rng.integers(0, 2**32 - 1, size=n_boot)
 
-        w_samples[b] = landy_szalay(DD, DR, RR, n_data, n_rand)
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_one_bootstrap)(
+            seeds[b], ra, dec, ra_r, dec_r, theta_bins_arcsec, RR, n_data, n_rand
+        )
+        for b in range(n_boot)
+    )
 
+    w_samples = np.array(results)
     return np.nanstd(w_samples, axis=0)
 
 
-# ---------------------------------------------------------------------
 # Step C.4: Integral constraint (Eq. 2-3)
-# ---------------------------------------------------------------------
 def compute_ic_ratio(theta_centers_arcsec, RR, beta=0.6, min_RR_counts=20):
     """
     Compute IC/A_w directly from Eq. 3:
@@ -149,9 +162,7 @@ def compute_ic_ratio(theta_centers_arcsec, RR, beta=0.6, min_RR_counts=20):
     return np.sum(RR[valid] * theta[valid] ** (-beta)) / np.sum(RR[valid])
 
 
-# ---------------------------------------------------------------------
 # Step C.5: Maximum-likelihood power-law fit (Eq. 4-5)
-# ---------------------------------------------------------------------
 def neg_log_likelihood(A_w, theta_centers_arcsec, w_obs, w_err, beta, ic_over_Aw):
     """
     Negative log-likelihood from Eq. 5:
@@ -206,9 +217,7 @@ def fit_power_law_mle(theta_centers_arcsec, w_obs, w_err, RR, beta=0.6, min_RR_c
     theta = np.asarray(theta_centers_arcsec)
     RR = np.asarray(RR)
 
-    valid = (
-        np.isfinite(w_obs) & np.isfinite(w_err) & (w_err > 0) & (RR >= min_RR_counts)
-    )
+    valid = (np.isfinite(w_obs) & np.isfinite(w_err) & (w_err > 0) & (RR >= min_RR_counts))
 
     if valid.sum() < 2:
         raise ValueError(
@@ -247,9 +256,7 @@ def fit_power_law_mle(theta_centers_arcsec, w_obs, w_err, RR, beta=0.6, min_RR_c
 
 
 
-# ---------------------------------------------------------------------
 # Step C.6: Limber transform, A_w -> r_0 (Eq. 6)
-# ---------------------------------------------------------------------
 def limber_integral(N_z_func, z_grid, cosmo):
     """
     Compute the redshift-dependent pieces needed in Eq. 6's RHS, given
@@ -307,6 +314,14 @@ def limber_transform_Aw_to_r0(A_w, beta, N_z_func, z_grid, cosmo, h=0.678):
     -------
     r0_h_inv_mpc : float, correlation length in h^-1 Mpc
     """
+    # A_w was fit against theta in ARCSEC (fit_power_law_mle uses
+    # theta_centers_arcsec), but the Limber equation requires the
+    # angle to be dimensionless (radians), since f_z below is a
+    # proper distance in Mpc. Convert here so callers never have to
+    # remember to do it themselves.
+    arcsec_to_rad = np.pi / (180.0 * 3600.0)
+    A_w = A_w * arcsec_to_rad ** beta
+
     gamma = beta + 1.0
 
     z_grid, N_vals, f_z, g_z, denom = limber_integral(N_z_func, z_grid, cosmo)
@@ -323,9 +338,7 @@ def limber_transform_Aw_to_r0(A_w, beta, N_z_func, z_grid, cosmo, h=0.678):
     return r0_h_inv_mpc
 
 
-# ---------------------------------------------------------------------
 # Step C.7: Galaxy bias from r_0 via sigma_8,g / sigma_8(z) (Eq. 7)
-# ---------------------------------------------------------------------
 def sigma8_galaxy(r0_h_inv_mpc, gamma, r_norm_h_inv_mpc=8.0):
     """
     Galaxy-field rms fluctuation in an 8 h^-1 Mpc sphere, computed

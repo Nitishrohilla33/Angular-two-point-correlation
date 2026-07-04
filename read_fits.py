@@ -88,8 +88,8 @@ Z_COL = "LP_Z_BEST"
 # Change these values as needed
 # ==========================================================
 
-z_min = 8.4
-z_max = 8.6
+z_min = 4.4
+z_max = 4.6
 
 mask = (
     (catalog[Z_COL] >= z_min) &

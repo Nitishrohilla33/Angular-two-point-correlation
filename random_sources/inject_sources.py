@@ -161,7 +161,7 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
     truth = np.zeros(n_sources, dtype=[("x", "f8"), ("y", "f8"), ("mag", "f8"), ("M_UV", "f8")])
     # in case you have ...PSF.fits file available then replace in with 
     # psf_fwhm_pix = "...PSF.fits"
-    psf_kernel = get_psf_kernel(psf_fwhm_pix=psf_fwhm_pix)
+    psf_kernel = get_psf_kernel(psf_file="psf_F277W.fits")
 
 
     half = stamp_size // 2

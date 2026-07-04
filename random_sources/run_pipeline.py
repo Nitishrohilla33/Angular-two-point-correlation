@@ -38,8 +38,19 @@ code (which is not published in the paper) -- PSF model, Sersic
 parameter ranges, SED template, and detection-threshold choices below
 are reasonable implementation choices, documented inline, standing in
 for details the paper does not specify numerically.
-"""
 
+CACHING
+-------
+Injection/detection (Steps 1-8) and pair counting (DD/DR/RR) are the
+expensive stages and do NOT depend on anything in Step 9's fitting
+math (IC, MLE, Limber transform, bias). Both are cached to disk so
+that iterating on the fitting/Limber/bias code -- e.g. fixing a unit
+bug in the Limber transform -- doesn't require regenerating the random
+catalog or recomputing pair counts. Set FORCE_REGENERATE_RANDOM /
+FORCE_RECOMPUTE_PAIRS to True (or delete the cache files) whenever you
+actually change injection, detection, or catalog selection.
+"""
+import os
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -90,7 +101,7 @@ def one_injection_round(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
 # Step 8: Build the full random catalog to the target size
 def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab, 
                          psf_fwhm_pix, n_target, z_drop, M_UV_range, 
-                         M_UV_cut, rng, n_inject_per_round=500, max_rounds=200):
+                         M_UV_cut, rng, n_inject_per_round=2000, max_rounds=200):
     """
     Repeatedly injects and recovers fake sources until n_target random
     points have survived detection + selection, then returns their sky
@@ -120,12 +131,40 @@ def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab,
     return ra, dec
 
 
+def get_random_catalog(cache_path, force_regenerate, science_data, weight_data, wcs,
+                       zeropoint_ab, psf_fwhm_pix, n_target, z_drop, M_UV_range,
+                       M_UV_cut, rng):
+    """
+    Loads the random catalog from cache_path if it exists (and
+    force_regenerate is False); otherwise runs the full
+    injection-recovery loop and saves the result to cache_path.
+    """
+    if os.path.exists(cache_path) and not force_regenerate:
+        print(f"Loading cached random catalog from {cache_path}...")
+        ra_rand, dec_rand = np.loadtxt(cache_path, skiprows=1, unpack=True)
+        print(f"Loaded {len(ra_rand)} cached random points.")
+        return ra_rand, dec_rand
+
+    print("Building depth-aware random catalog via injection-recovery...")
+    ra_rand, dec_rand = build_random_catalog(
+        science_data, weight_data, wcs, zeropoint_ab,
+        psf_fwhm_pix, n_target, z_drop, M_UV_range, M_UV_cut, rng,
+    )
+    random_catalog = np.column_stack((ra_rand, dec_rand))
+    np.savetxt(cache_path, random_catalog, fmt="%.8f",
+               header="RA(deg)    DEC(deg)", comments="")
+    print(f"Random catalog saved as {cache_path}")
+    print(f"Random catalog complete: {len(ra_rand)} points")
+    return ra_rand, dec_rand
+
+
 # Step 9: Compute the ACF, fit A_w via MLE (with proper IC), then
 #         derive r_0 (Limber transform) and galaxy bias -- Eq. 1-7
 def compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central, N_z_func,
                          cosmo, h=0.678,  sigma8_0=0.828, theta_min_arcsec=12.5,
                          theta_max_arcsec=250.0, bin_width_arcsec=12.5, beta=0.6, n_boot=200,
-                         rng=None, z_integration_range=None):
+                         rng=None, z_integration_range=None,
+                         pair_counts_cache_path=None, force_recompute_pairs=False):
     """
     Full clustering pipeline, Eq. 1-7:
 
@@ -139,6 +178,12 @@ def compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central, N_z_fu
 
     Returns a dict with every intermediate quantity, not just the
     final bias, so each step can be inspected/sanity-checked.
+
+    DD/DR/RR pair counts (the expensive part -- KD-tree queries over
+    the full data+random catalogs) are cached to pair_counts_cache_path
+    if provided, so re-fitting/re-deriving r_0 and bias later doesn't
+    require recomputing them. Set force_recompute_pairs=True whenever
+    ra_data/dec_data or ra_rand/dec_rand actually change.
     """
     theta_bins = np.arange(theta_min_arcsec, theta_max_arcsec + bin_width_arcsec, bin_width_arcsec)
     theta_centers = 0.5 * (theta_bins[:-1] + theta_bins[1:])
@@ -146,9 +191,18 @@ def compute_acf_and_bias(ra_data, dec_data, ra_rand, dec_rand, z_central, N_z_fu
     n_data = len(ra_data)
     n_rand = len(ra_rand)
 
-    DD = pair_counts(ra_data, dec_data, ra_data, dec_data, theta_bins, same_catalog=True)
-    DR = pair_counts(ra_data, dec_data, ra_rand, dec_rand, theta_bins)
-    RR = pair_counts(ra_rand, dec_rand, ra_rand, dec_rand, theta_bins, same_catalog=True)
+    if (pair_counts_cache_path is not None and os.path.exists(pair_counts_cache_path)
+            and not force_recompute_pairs):
+        print(f"Loading cached pair counts from {pair_counts_cache_path}...")
+        cached = np.load(pair_counts_cache_path)
+        DD, DR, RR = cached["DD"], cached["DR"], cached["RR"]
+    else:
+        DD = pair_counts(ra_data, dec_data, ra_data, dec_data, theta_bins, same_catalog=True)
+        DR = pair_counts(ra_data, dec_data, ra_rand, dec_rand, theta_bins)
+        RR = pair_counts(ra_rand, dec_rand, ra_rand, dec_rand, theta_bins, same_catalog=True)
+        if pair_counts_cache_path is not None:
+            np.savez(pair_counts_cache_path, DD=DD, DR=DR, RR=RR)
+            print(f"Pair counts saved as {pair_counts_cache_path}")
 
     w_obs = landy_szalay(DD, DR, RR, n_data, n_rand)
     w_err = bootstrap_errors(ra_data, dec_data, ra_rand, dec_rand, theta_bins, n_boot=n_boot, rng=rng)
@@ -188,38 +242,40 @@ if __name__ == "__main__":
     SCIENCE_FITS = "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_sci.fits.gz"
     WEIGHT_FITS = "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_wht.fits.gz"
     PSF_FWHM_PIX = 3.0          # Approximate JWST/NIRCam F277W Gaussian PSF FWHM (pixels)
-    Z_DROP = 8.5
+    Z_DROP = 4.5
     M_UV_RANGE = (-24.0, -15.0)
     M_UV_CUT = np.inf
-    N_RANDOM_TARGET = 20 * 44  # N_r = 20 * N_d, per Sec. 4
+    N_RANDOM_TARGET = 20 * 446  # N_r = 20 * N_d, per Sec. 4
+
+    # --- caching controls ---
+    # Flip these to True (or delete the corresponding cache file) only
+    # when injection/detection settings or the input catalogs actually
+    # change. Leave False when only touching the fitting/Limber/bias
+    # code downstream -- this is what makes iteration fast.
+    RANDOM_CATALOG_CACHE = f"random_catalog_z{Z_DROP}.txt"
+    PAIR_COUNTS_CACHE = f"pair_counts_z{Z_DROP}.npz"
+    FORCE_REGENERATE_RANDOM = False
+    FORCE_RECOMPUTE_PAIRS = False
 
     # Real LBG catalog positions (RA, Dec in degrees) -- load your own
     # selected sample here. Placeholder arrays shown for structure only.
-    ra_data, dec_data = np.loadtxt("CEERS_z8.5_selected.csv", delimiter=",", skiprows=1, usecols=(0, 1), unpack=True)
+    ra_data, dec_data = np.loadtxt("CEERS_z4.5_selected.csv", delimiter=",", skiprows=1, usecols=(0, 1), unpack=True)
 
-    science_data, weight_data, wcs, zeropoint_ab = load_field(SCIENCE_FITS, WEIGHT_FITS)
-    nx, ny = science_data.shape
-    n_random = 3000
-    x_rand = rng.integers(0, nx, size=n_random)
-    y_rand = rng.integers(0, ny, size=n_random)
-
-    print("Building depth-aware random catalog via injection-recovery...")
-    ra_rand, dec_rand = build_random_catalog(
-        science_data,
-        weight_data,
-        wcs,
-        zeropoint_ab,
-        PSF_FWHM_PIX,
-        N_RANDOM_TARGET,
-        Z_DROP,
-        M_UV_RANGE,
-        M_UV_CUT,
-        rng,
-    )
-    random_catalog = np.column_stack((ra_rand, dec_rand))
-    np.savetxt("random_catalog.txt", random_catalog, fmt="%.8f", header="RA(deg)    DEC(deg)", comments="")
-    print("Random catalog saved as random_catalog.txt")
-    print(f"Random catalog complete: {len(ra_rand)} points")
+    # Only load FITS images and run injection if we actually need to
+    # regenerate the random catalog -- loading multi-GB science/weight
+    # images just to immediately discard them wastes time too.
+    if os.path.exists(RANDOM_CATALOG_CACHE) and not FORCE_REGENERATE_RANDOM:
+        ra_rand, dec_rand = get_random_catalog(
+            RANDOM_CATALOG_CACHE, FORCE_REGENERATE_RANDOM,
+            None, None, None, None, None, None, None, None, None, rng,
+        )
+    else:
+        science_data, weight_data, wcs, zeropoint_ab = load_field(SCIENCE_FITS, WEIGHT_FITS)
+        ra_rand, dec_rand = get_random_catalog(
+            RANDOM_CATALOG_CACHE, FORCE_REGENERATE_RANDOM,
+            science_data, weight_data, wcs, zeropoint_ab, PSF_FWHM_PIX,
+            N_RANDOM_TARGET, Z_DROP, M_UV_RANGE, M_UV_CUT, rng,
+        )
 
     # --- Cosmology and N(z), needed for the Limber transform (Eq. 6) ---
     from astropy.cosmology import FlatLambdaCDM
@@ -235,10 +291,12 @@ if __name__ == "__main__":
         # process used for the random catalog, per Sec. 4.1.2.
         return np.exp(-0.5 * ((z - z0) / sigma_z) ** 2)
 
-    # Uncomment once a real catalog is loaded:
     results = compute_acf_and_bias(
         ra_data, dec_data, ra_rand, dec_rand,
         z_central=Z_DROP, N_z_func=N_z, cosmo=cosmo, h=0.678,
+        rng=rng,
+        pair_counts_cache_path=PAIR_COUNTS_CACHE,
+        force_recompute_pairs=FORCE_RECOMPUTE_PAIRS,
     )
     print("A_w =", results["A_w"], "+/-", results["A_w_err"])
     print("IC/A_w =", results["ic_over_Aw"])
@@ -251,7 +309,6 @@ if __name__ == "__main__":
 
     # Plotting
     import matplotlib.pyplot as plt
-    import numpy as np
     theta, w, err, beta = results["theta_centers"], results["w_obs"], results["w_err"], 0.6
     theta_fit = np.linspace(theta.min(), theta.max(), 300)
     w_fit = results["A_w"] * theta_fit**(-beta)
@@ -272,10 +329,10 @@ if __name__ == "__main__":
     if results["A_w"] > 0:
         ax[1].plot(theta_fit, w_fit, color='red', linewidth=2,
                     label=r'Best fit: $A_w\theta^{-0.6}$')
+    ax[1].axhline(y=0, color='k', linestyle='--', linewidth=1)   
     # ax[1].set_xscale("log")
-    # Use logarithmic y-axis only if all values are positive
-    if np.all(w > 0):
-        ax[1].set_yscale("log")
+    # if np.all(w > 0):
+    #     ax[1].set_yscale("log")
     ax[1].set_xlabel("Angular Separation (arcsec)", fontsize=12)
     ax[1].set_ylabel(r"$w(\theta)$", fontsize=12)
     ax[1].set_title("Angular Two-Point Correlation Function", fontsize=14)
