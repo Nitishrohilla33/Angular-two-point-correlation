@@ -313,39 +313,39 @@ if __name__ == "__main__":
     theta_fit = np.linspace(theta.min(), theta.max(), 300)
     w_fit = results["A_w"] * theta_fit**(-beta)
 
-    fig, ax = plt.subplots(1, 2, figsize=(15, 6), constrained_layout=True)
+    fig, ax = plt.subplots(1, 1, figsize=(8, 5), constrained_layout=True)
 
-    ax[0].scatter(ra_rand, dec_rand, s=2, color="royalblue")
-    ax[0].set_xlabel("RA (deg)", fontsize=12)
-    ax[0].set_ylabel("DEC (deg)", fontsize=12)
-    ax[0].set_title("Random Catalog", fontsize=14)
-    ax[0].grid(alpha=0.3)
-    ax[0].invert_xaxis()    # Astronomical convention 
+    # ax[0].scatter(ra_rand, dec_rand, s=2, color="royalblue")
+    # ax[0].set_xlabel("RA (deg)", fontsize=12)
+    # ax[0].set_ylabel("DEC (deg)", fontsize=12)
+    # ax[0].set_title("Random Catalog", fontsize=14)
+    # ax[0].grid(alpha=0.3)
+    # ax[0].invert_xaxis()    # Astronomical convention 
 
-    ax[1].errorbar(theta, w, yerr=err, fmt='o', color='black', 
+    ax.errorbar(theta, w, yerr=err, fmt='o', color='black', 
                    markersize=5, capsize=3,label='Measured $w(\\theta)$')
 
     # Plot fitted power law only if positive
     if results["A_w"] > 0:
-        ax[1].plot(theta_fit, w_fit, color='red', linewidth=2,
+        ax.plot(theta_fit, w_fit, color='red', linewidth=2,
                     label=r'Best fit: $A_w\theta^{-0.6}$')
-    ax[1].axhline(y=0, color='k', linestyle='--', linewidth=1)   
-    # ax[1].set_xscale("log")
+    ax.axhline(y=0, color='k', linestyle='--', linewidth=1)   
+    # ax.set_xscale("log")
     # if np.all(w > 0):
-    #     ax[1].set_yscale("log")
-    ax[1].set_xlabel("Angular Separation (arcsec)", fontsize=12)
-    ax[1].set_ylabel(r"$w(\theta)$", fontsize=12)
-    ax[1].set_title("Angular Two-Point Correlation Function", fontsize=14)
-    ax[1].grid(True, which="both", alpha=0.3)
-    ax[1].legend()
+    #     ax.set_yscale("log")
+    ax.set_xlabel("Angular Separation (arcsec)", fontsize=12)
+    ax.set_ylabel(r"$w(\theta)$", fontsize=12)
+    ax.set_title("Angular Two-Point Correlation Function", fontsize=14)
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend()
     # Display fitted amplitude
-    ax[1].text(
+    ax.text(
         0.05,
         0.95,
         rf"$A_w = {results['A_w']:.4f}$" "\n"
         rf"$\sigma(A_w) = {results['A_w_err']:.4f}$" "\n"
         rf"$\beta = {beta}$",
-        transform=ax[1].transAxes,
+        transform=ax.transAxes,
         fontsize=11,
         verticalalignment="top",
         bbox=dict(facecolor="white", edgecolor="black")
