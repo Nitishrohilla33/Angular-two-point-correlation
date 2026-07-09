@@ -12,6 +12,8 @@ from scipy.spatial import cKDTree
 from scipy.special import beta as beta_function
 from scipy.integrate import quad
 from scipy.optimize import minimize_scalar
+from joblib import Parallel, delayed
+
 
 
 # Pair counts in angular separation bins
@@ -81,8 +83,6 @@ def landy_szalay(DD, DR, RR, n_data, n_rand):
     return w
 
 # Bootstrap error estimation (Ling, Frenk & Barrow 1986)
-from joblib import Parallel, delayed
-
 def _one_bootstrap(seed, ra, dec, ra_r, dec_r, theta_bins_arcsec, RR, n_data, n_rand):
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, n_data, size=n_data)
@@ -160,7 +160,7 @@ def compute_ic_ratio(theta_centers_arcsec, RR, beta=0.6, min_RR_counts=20):
     return np.sum(RR[valid] * theta[valid] ** (-beta)) / np.sum(RR[valid])
 
 # Maximum-likelihood power-law fit (Eq. 4-5)
-def neg_log_likelihood(A_w, theta_centers_arcsec, w_obs, w_err, beta, ic_over_Aw):
+def _neg_log_likelihood(A_w, theta_centers_arcsec, w_obs, w_err, beta, ic_over_Aw):
     """
     Negative log-likelihood from Eq. 5:
 
@@ -236,7 +236,7 @@ def fit_power_law_mle(theta_centers_arcsec, w_obs, w_err, RR, beta=0.6, min_RR_c
 
     # Independent numerical check via direct likelihood maximization
     res = minimize_scalar(
-        neg_log_likelihood,
+        _neg_log_likelihood,
         bracket=(A_w_closed_form * 0.5 - 1e-6, A_w_closed_form, A_w_closed_form * 1.5 + 1e-6),
         args=(theta[valid], w_obs[valid], w_err[valid], beta, ic_over_Aw),
     )
