@@ -51,6 +51,7 @@ FORCE_RECOMPUTE_PAIRS to True (or delete the cache files) whenever you
 actually change injection, detection, or catalog selection.
 """
 import os
+import warnings
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -68,21 +69,37 @@ from acf_estimator import (
 )
 
 # Load real images
-def load_field(science_path, weight_path):
+def load_field(science_path, weight_path, verbose=False):
     with fits.open(science_path) as hdul:
-        hdul.info()
+        if verbose:
+            hdul.info()
         sci_hdu = hdul["SCI"]
         science_data = sci_hdu.data.astype(float)
         wcs = WCS(sci_hdu.header)
-        zeropoint_ab = sci_hdu.header.get("ZP_AB", 28.9) # For F277W 
+        band = sci_hdu.header.get("FILTER", "UNKNOWN")
+        zeropoint_ab = sci_hdu.header.get("ZP_AB")
+        if zeropoint_ab is None:
+            zeropoint_ab = 28.9
+            warnings.warn(f"No ZP_AB in header for {science_path} (filter={band}); "
+                          f"falling back to F277W zeropoint {zeropoint_ab}.")
 
     with fits.open(weight_path) as hdul:
-        hdul.info()
-        try:
-            wht_hdu = hdul["SCI"]
-        except:    
-            wht_hdu = hdul[1] # In case there is different survey
+        if verbose:
+            hdul.info()
+        for ext_name in ("WHT", "RMS", "ERR", "WEIGHT"):
+            try:
+                wht_hdu = hdul[ext_name]
+                break
+            except KeyError:
+                continue
+        else:
+            wht_hdu = hdul[1]  # last-resort fallback
         weight_data = wht_hdu.data.astype(float)
+
+    if weight_data.shape != science_data.shape:
+        raise ValueError(f"Shape mismatch: science {science_data.shape} vs "
+                         f"weight {weight_data.shape} for {science_path}")
+
     return science_data, weight_data, wcs, zeropoint_ab
 
 # One injection-and-recovery round

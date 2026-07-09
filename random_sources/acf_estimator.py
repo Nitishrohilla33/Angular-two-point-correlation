@@ -281,7 +281,7 @@ def _limber_integral(N_z_func, z_grid, cosmo):
 
 def limber_transform_Aw_to_r0(A_w, beta, N_z_func, z_grid, cosmo, h=0.678):
     """
-    Invert Eq. 6 to solve for r_0 given a measured A_w (fixed beta,
+    Invert Eq. 7 to solve for r_0 given a measured A_w (fixed beta,
     with gamma = beta + 1), following Adelberger et al. (2005):
 
         r_0^gamma * B[1/2, (gamma-1)/2] *
