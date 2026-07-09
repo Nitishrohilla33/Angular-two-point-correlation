@@ -15,8 +15,10 @@ from photutils.segmentation import detect_sources, detect_threshold, SourceCatal
 from photutils.utils import circular_footprint
 from scipy.spatial import cKDTree
 
+from inject_sources import get_psf_kernel
+
 # Source detection (mimiks SExtractor-style segmentation)
-def detect_in_image(data, weight, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0):
+def detect_in_image(data, weight, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0, psf_file=None):
     """
     Detect sources in data above a per-pixel threshold derives from 
     the LOCAL background RMS (from the weight/RMS map), using phoutils
@@ -46,7 +48,7 @@ def detect_in_image(data, weight, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0):
     coverage there), reproducing the survey's true footprint and 
     internal masked regions automatically.
     """
-    from astropy.convolution import convolve, Gaussian2DKernel
+    from astropy.convolution import convolve
     coverage_mask = weight <= 0
     mean, median, std = sigma_clipped_stats(data, mask=coverage_mask, sigma=3.0)
     bkg_subtracted = data - median
@@ -57,7 +59,8 @@ def detect_in_image(data, weight, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0):
     good = ~coverage_mask         # Inverting
     error_map[good] = 1.0 / np.sqrt(weight[good])
 
-    kernel = Gaussian2DKernel(x_stddev=smooth_fwhm_pix / 2.3548)
+    kernel = get_psf_kernel(psf_fwhm_pix=smooth_fwhm_pix, psf_file=psf_file)
+
     # Fill masked pixels with 0 (post backgroung-subtraction, this is 
     # the expected background-only value) before convolving, rather 
     # than relying on NaN-interpolation, which can fail to fill large 
@@ -68,7 +71,8 @@ def detect_in_image(data, weight, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0):
     # Smoothing reduces noice by a known factor (sum of kernel weights
     # in quadrature); scale the per-pixel error map down to match, so 
     # the threshold is evaluated consistently on the smoothed image.
-    kernel_noise_factor = np.sqrt(np.sum(kernel.array **2))
+    kernel_array = kernel.array if hasattr(kernel, "array") else kernel
+    kernel_noise_factor = np.sqrt(np.sum(kernel_array**2))
     smoothed_error_map = error_map * kernel_noise_factor
 
     threshold = nsigma * smoothed_error_map
@@ -93,11 +97,11 @@ def match_recovered(detections_cat, truth_table, match_radius_pix=2.0):
     """
     n_truth = len(truth_table)
     recovered = np.zeros(n_truth, dtype=bool)
-    meas_mag = np.full(n_truth, np.nan)
+    meas_flux = np.full(n_truth, np.nan)
 
     valid = ~np.isnan(truth_table["mag"])          # inverting 
-    if detections_cat is None or valid.sum() == 0:
-        return recovered, meas_mag
+    if detections_cat is None or len(detections_cat) == 0 or valid.sum() == 0:
+        return recovered, meas_flux
     
     det_x, det_y = detections_cat.xcentroid, detections_cat.ycentroid
     det_flux = detections_cat.segment_flux
@@ -109,9 +113,10 @@ def match_recovered(detections_cat, truth_table, match_radius_pix=2.0):
     is_match = dist <= match_radius_pix
 
     valid_idx = np.where(valid)[0]
+    recovered[valid_idx[is_match]] = True
     recovered[valid_idx[is_match]] = det_flux[idx[is_match]]
 
-    return recovered, meas_mag
+    return recovered, meas_flux
 
 # Apply the same LBG selection cut used for real candidates
 def apply_selection_cut(truth_table, recovered, M_UV_cut=-20):
