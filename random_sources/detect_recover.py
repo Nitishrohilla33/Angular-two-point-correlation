@@ -114,7 +114,7 @@ def match_recovered(detections_cat, truth_table, match_radius_pix=2.0):
 
     valid_idx = np.where(valid)[0]
     recovered[valid_idx[is_match]] = True
-    recovered[valid_idx[is_match]] = det_flux[idx[is_match]]
+    meas_flux[valid_idx[is_match]] = det_flux[idx[is_match]]
 
     return recovered, meas_flux
 
