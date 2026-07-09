@@ -266,7 +266,7 @@ if __name__ == "__main__":
     PSF_FWHM_PIX = 3.0          # Approximate JWST/NIRCam F277W Gaussian PSF FWHM (pixels)
     Z_DROP = 4.5
     M_UV_RANGE = (-24.0, -15.0)
-    M_UV_CUT = np.inf
+    M_UV_CUT = -15.0
     N_RANDOM_TARGET = 20 * 446  # N_r = 20 * N_d, per Sec. 4
 
     # --- caching controls ---
