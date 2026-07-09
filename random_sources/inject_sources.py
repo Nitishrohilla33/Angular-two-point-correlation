@@ -4,7 +4,7 @@ Step A: Source injection.
 Implements the Monte Carlo fake-source injection described in
 Dalmasso, Trenti & Leethochawalit (2023), sec. 4.1.2:
 
-    "we generated the reference random sample thouugh a Monte Carlo
+    "we generated the reference random sample through a Monte Carlo
     simulation that places artificial sources with realistic spectral
     energy distributions and recovers them through the full photometric pipeline."
 
@@ -45,7 +45,7 @@ def lbg_dropout_color(z_drop, band_wave_um):
     else:
         return 0.05    #  blueward: suppressed by IGM absorption
     
-def build_sed(z_drop, bands_um, M_UV, beta_UV=-0.2):
+def build_sed(z_drop, bands_um, M_UV, beta_UV=-2.0):    
     """
     Build apperent AB magnitudes in each band for a fake LBG at 
     redshift z_drop with rest-frame absolute UV magnitude M_UV.
@@ -75,7 +75,7 @@ def build_sed(z_drop, bands_um, M_UV, beta_UV=-0.2):
 
 
 # Sersic profile fake galaxy stamp
-def make_sersic_stemp(stamp_size, r_eff_pix, n_sersic, ellip, theta, total_flux):
+def make_sersic_stamp(stamp_size, r_eff_pix, n_sersic, ellip, theta, total_flux):
     """
     Build a normalized Sersic2D potage stamp with given effective 
     radius (pixels), Sersic index, ellipticity, position angle, and 
@@ -102,11 +102,8 @@ def get_psf_kernel(psf_fwhm_pix=None, psf_file=None):
 
     Parameters
     ----------
-    psf_fwhm_pix : float
-        Gaussian PSF FWHM in pixels.
-
-    psf_file : str or None
-        FITS file containing an empirical PSF.
+    psf_fwhm_pix : float or None, Gaussian PSF FWHM in pixels.
+    psf_file : str or None, FITS file containing an empirical PSF.
 
     Returns
     -------
@@ -187,7 +184,7 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
         flux_counts = mag_to_counts(mag_app, zeropoint_ab)
    
 
-        stamp = make_sersic_stemp(stamp_size, r_effs[i], n_sersics[i],
+        stamp = make_sersic_stamp(stamp_size, r_effs[i], n_sersics[i],
                                    ellips[i], thetas[i], flux_counts)
         stamp = convolve_fft(stamp, psf_kernel, normalize_kernel=True, boundary="fill", fill_value=0.0)
 

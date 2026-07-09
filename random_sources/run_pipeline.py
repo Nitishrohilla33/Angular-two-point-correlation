@@ -86,7 +86,7 @@ def load_field(science_path, weight_path):
     return science_data, weight_data, wcs, zeropoint_ab
 
 # One injection-and-recovery round
-def one_injection_round(science_data, weight_data, zeropoint_ab, psf_fwhm_pix, 
+def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_fwhm_pix, 
                         n_inject, z_drop, M_UV_range, M_UV_cut, rng):
     injected_data, truth = inject_fake_sources(science_data, weight_data, zeropoint_ab,
                                                psf_fwhm_pix, n_inject, z_drop, M_UV_range, rng)
@@ -111,7 +111,7 @@ def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab,
     n_have = 0
 
     for round_i in range(max_rounds):
-        x_round, y_round = one_injection_round(science_data, weight_data, zeropoint_ab,
+        x_round, y_round = _one_injection_round(science_data, weight_data, zeropoint_ab,
                                                psf_fwhm_pix, n_inject_per_round, z_drop,
                                                M_UV_range, M_UV_cut, rng)
         xs_kept.append(x_round)

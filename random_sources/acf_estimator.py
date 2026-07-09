@@ -14,7 +14,7 @@ from scipy.integrate import quad
 from scipy.optimize import minimize_scalar
 
 
-# Step C.1: Pair counts in angular separation bins
+# Pair counts in angular separation bins
 def pair_counts(ra1, dec1, ra2, dec2, theta_bins_arcsec, same_catalog=False):
     """
     Count pairs between two catalogs (or within one catalog if
@@ -59,8 +59,7 @@ def pair_counts(ra1, dec1, ra2, dec2, theta_bins_arcsec, same_catalog=False):
 
     return counts
 
-
-# Step C.2: Landy-Szalay estimator
+# Landy-Szalay estimator
 def landy_szalay(DD, DR, RR, n_data, n_rand):
     """
     Standard Landy & Szalay (1993) estimator, with the customary
@@ -81,7 +80,7 @@ def landy_szalay(DD, DR, RR, n_data, n_rand):
         w = (DD_norm - 2 * DR_norm + RR_norm) / RR_norm
     return w
 
-# Step C.3: Bootstrap error estimation (Ling, Frenk & Barrow 1986)
+# Bootstrap error estimation (Ling, Frenk & Barrow 1986)
 from joblib import Parallel, delayed
 
 def _one_bootstrap(seed, ra, dec, ra_r, dec_r, theta_bins_arcsec, RR, n_data, n_rand):
@@ -129,13 +128,12 @@ def bootstrap_errors(ra, dec, ra_r, dec_r, theta_bins_arcsec, n_boot=200, rng=No
     w_samples = np.array(results)
     return np.nanstd(w_samples, axis=0)
 
-
-# Step C.4: Integral constraint (Eq. 2-3)
+# Integral constraint (Eq. 2-3)
 def compute_ic_ratio(theta_centers_arcsec, RR, beta=0.6, min_RR_counts=20):
     """
     Compute IC/A_w directly from Eq. 3:
 
-        IC = A_w * sum_i[ RR(theta_i) * theta_i^-beta ] / sum_i[ RR(theta_i) ]
+        IC = A_w * sum_i[RR(theta_i) * theta_i^-beta] / sum_i[RR(theta_i)]
 
     Since beta is fixed, IC/A_w depends only on the random catalog's
     own RR(theta) pair-count distribution (i.e. only on survey size and
@@ -161,8 +159,7 @@ def compute_ic_ratio(theta_centers_arcsec, RR, beta=0.6, min_RR_counts=20):
     valid = RR >= min_RR_counts
     return np.sum(RR[valid] * theta[valid] ** (-beta)) / np.sum(RR[valid])
 
-
-# Step C.5: Maximum-likelihood power-law fit (Eq. 4-5)
+# Maximum-likelihood power-law fit (Eq. 4-5)
 def neg_log_likelihood(A_w, theta_centers_arcsec, w_obs, w_err, beta, ic_over_Aw):
     """
     Negative log-likelihood from Eq. 5:
@@ -208,7 +205,7 @@ def fit_power_law_mle(theta_centers_arcsec, w_obs, w_err, RR, beta=0.6, min_RR_c
     when RR happens to land near zero). This guards against exactly
     that failure mode, which has no real-survey analogue since a
     properly sized random catalog (paper uses N_r = 20 * N_d) keeps RR
-    well-sampled at every separation within theta_max.
+    well-sampled at every separation within theta_max. 
 
     Returns
     -------
@@ -253,11 +250,8 @@ def fit_power_law_mle(theta_centers_arcsec, w_obs, w_err, RR, beta=0.6, min_RR_c
 
     return A_w_closed_form, A_w_err, ic_over_Aw
 
-
-
-
-# Step C.6: Limber transform, A_w -> r_0 (Eq. 6)
-def limber_integral(N_z_func, z_grid, cosmo):
+# Limber transform, A_w -> r_0 (Eq. 6)
+def _limber_integral(N_z_func, z_grid, cosmo):
     """
     Compute the redshift-dependent pieces needed in Eq. 6's RHS, given
     a redshift distribution N(z) (callable) and a grid of z to
@@ -324,7 +318,7 @@ def limber_transform_Aw_to_r0(A_w, beta, N_z_func, z_grid, cosmo, h=0.678):
 
     gamma = beta + 1.0
 
-    z_grid, N_vals, f_z, g_z, denom = limber_integral(N_z_func, z_grid, cosmo)
+    z_grid, N_vals, f_z, g_z, denom = _limber_integral(N_z_func, z_grid, cosmo)
 
     integrand = N_vals ** 2 * f_z ** (1.0 - gamma) / g_z
     numerator = np.trapezoid(integrand, z_grid)
@@ -337,8 +331,7 @@ def limber_transform_Aw_to_r0(A_w, beta, N_z_func, z_grid, cosmo, h=0.678):
 
     return r0_h_inv_mpc
 
-
-# Step C.7: Galaxy bias from r_0 via sigma_8,g / sigma_8(z) (Eq. 7)
+# Galaxy bias from r_0 via sigma_8,g / sigma_8(z) (Eq. 7)
 def sigma8_galaxy(r0_h_inv_mpc, gamma, r_norm_h_inv_mpc=8.0):
     """
     Galaxy-field rms fluctuation in an 8 h^-1 Mpc sphere, computed
