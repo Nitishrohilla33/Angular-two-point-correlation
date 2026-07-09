@@ -104,11 +104,11 @@ def load_field(science_path, weight_path, verbose=False):
 
 # One injection-and-recovery round
 def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_fwhm_pix, 
-                        n_inject, z_drop, M_UV_range, M_UV_cut, rng):
+                        n_inject, z_drop, M_UV_range, M_UV_cut, rng, psf_file=None):
     injected_data, truth = inject_fake_sources(science_data, weight_data, zeropoint_ab,
-                                               psf_fwhm_pix, n_inject, z_drop, M_UV_range, rng)
+                                               psf_fwhm_pix, n_inject, z_drop, M_UV_range, rng, psf_file=psf_file)
 
-    cat, _ = detect_in_image(injected_data, weight_data)
+    cat, _ = detect_in_image(injected_data, weight_data, psf_file=psf_file)
     recovered, _ = match_recovered(cat, truth, match_radius_pix=2.0)
     keep = apply_selection_cut(truth, recovered, M_UV_cut=M_UV_cut)
 
@@ -258,6 +258,7 @@ if __name__ == "__main__":
     # --- user-editable paths / parameters ---
     SCIENCE_FITS = "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_sci.fits.gz"
     WEIGHT_FITS = "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_wht.fits.gz"
+    PSF_FITS = "psf_F277W.fits"
     PSF_FWHM_PIX = 3.0          # Approximate JWST/NIRCam F277W Gaussian PSF FWHM (pixels)
     Z_DROP = 4.5
     M_UV_RANGE = (-24.0, -15.0)
