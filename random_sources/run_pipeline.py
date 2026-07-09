@@ -104,7 +104,11 @@ def load_field(science_path, weight_path, verbose=False):
 
 # One injection-and-recovery round
 def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_fwhm_pix, 
-                        n_inject, z_drop, M_UV_range, M_UV_cut, rng, psf_file=None):
+                        n_inject, z_drop, M_UV_range, M_UV_cut, rng):
+    if os.path.exists(PSF_FITS):
+        psf_file = PSF_FITS
+    else:
+        psf_file = None
     injected_data, truth = inject_fake_sources(science_data, weight_data, zeropoint_ab,
                                                psf_fwhm_pix, n_inject, z_drop, M_UV_range, rng, psf_file=psf_file)
 
