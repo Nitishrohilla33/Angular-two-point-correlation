@@ -115,7 +115,7 @@ def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
     return truth["x"][keep], truth["y"][keep]
 
 
-# Step 8: Build the full random catalog to the target size
+# Build the full random catalog to the target size
 def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab, 
                          psf_fwhm_pix, n_target, z_drop, M_UV_range, 
                          M_UV_cut, rng, n_inject_per_round=2000, max_rounds=200):
