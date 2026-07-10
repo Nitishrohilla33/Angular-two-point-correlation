@@ -65,12 +65,25 @@ def build_sed(z_drop, bands_um, M_UV, beta_UV=-2.0):
     # (good enough for fake-source injection purposes; not used for any)
     # science result, only to set a realistic relative brightness).
     DM = 5 * np.log10(d_L / 10.0)
-    m_app_continuum = M_UV + DM - 2.5 * np.log10(1.0 + z_drop)
+
+    # Apperent magnitude at rest-frame 1500 Angstroms (0.15 micron)
+    m_1500 = M_UV + DM - 2.5 * np.log10(1.0 + z_drop)
     mags = {} # empty dictionary
     for band, wave_um in bands_um.items():
+        # Get the IGM dropout/transmission factor
         ratio = lbg_dropout_color(z_drop, wave_um)
+
+        # compute the intrinsic UN continuum slope correction 
+        # Convert wave_um to rest-frame wavelength in microns
+        wave_rest_um = wave_um / (1.0 + z_drop)
+
+        # f_lambda ~ lambda^beta => f_nu ~ lambda^(beta + 2)
+        # Delta_mag = -2.5 * log10(f_nu / f_nu_1500) = -2.5 * (beta + 2) * log10(lambda_rest / 0.15)
+        slope_correction = -2.5 * (beta_UV + 2.0) * np.log10(wave_rest_um / 0.15)
+
+
         # convert continuum mag + flux ratio -> apparent mag in this band
-        mags[band] = m_app_continuum - 2.5 * np.log10(max(ratio, 1e-6))
+        mags[band] = m_1500 + slope_correction - 2.5 * np.log10(max(ratio, 1e-6))
     return mags
 
 
@@ -175,7 +188,7 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
             truth[i] = (x_c, y_c, np.nan, M_UVs[i])
             continue
 
-        mag_app = build_sed(z_drop, {"F277W": 2.77}, M_UVs[i])["F277W"]
+        mag_app = build_sed(z_drop, {"F277W": 2.77}, M_UVs[i], beta_UV=-2.0)["F277W"]
         # NOTE: "this_band" wavelength is a placeholder of 1.0 micron;
         # callers handling multiple real bands should call build_sed
         # once per band with real pivott wavelenghts instead. Kept

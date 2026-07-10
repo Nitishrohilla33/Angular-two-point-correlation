@@ -281,7 +281,7 @@ if __name__ == "__main__":
 
     # Real LBG catalog positions (RA, Dec in degrees) -- load your own
     # selected sample here. Placeholder arrays shown for structure only.
-    ra_data, dec_data = np.loadtxt("CEERS_z4.5_selected.csv", delimiter=",", skiprows=1, usecols=(0, 1), unpack=True)
+    ra_data, dec_data = np.loadtxt("CEERS_z4.5_selected.csv", delimiter=",", skiprows=1, usecols=(0, 1), unpack=True)    # Data file
 
     # Only load FITS images and run injection if we actually need to
     # regenerate the random catalog -- loading multi-GB science/weight
