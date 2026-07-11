@@ -131,8 +131,8 @@ def get_psf_kernel(psf_fwhm_pix=None, psf_file=None):
         return Gaussian2DKernel(x_stddev=psf_fwhm_pix / 2.3548)
 
 # Injection into the real science image
-def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
-                         n_sources, z_drop, M_UV_range, rng, psf_file=None, stamp_size=41):
+def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_kernel,
+                         n_sources, z_drop, M_UV_range, rng, stamp_size=31):
     """
     Inject n_sources fake Sersic-profile LBGs at uniformly random pixel 
     positions across the full science image footprint (Including
@@ -168,10 +168,13 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
     ellips = rng.uniform(0.0, 0.6, size=n_sources)
     thetas = rng.uniform(0, np.pi, size=n_sources)
 
+    # ---------------------------------------------------------
+    # Compute apparent magnitudes for all fake galaxies once
+    # ---------------------------------------------------------
+    mag_apps = np.array([build_sed(z_drop, {"F277W": 2.77}, M, beta_UV=-2.0)["F277W"] for M in M_UVs])
+
     truth = np.zeros(n_sources, dtype=[("x", "f8"), ("y", "f8"), ("mag", "f8"), ("M_UV", "f8")])
-    # in case you have ...PSF.fits file available then replace in with 
-    # psf_fwhm_pix = "...PSF.fits"
-    psf_kernel = get_psf_kernel(psf_fwhm_pix=psf_fwhm_pix, psf_file=psf_file)
+
 
 
     half = stamp_size // 2
@@ -188,7 +191,7 @@ def inject_fake_sources(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
             truth[i] = (x_c, y_c, np.nan, M_UVs[i])
             continue
 
-        mag_app = build_sed(z_drop, {"F277W": 2.77}, M_UVs[i], beta_UV=-2.0)["F277W"]
+        mag_app = mag_apps[i]
         # NOTE: "this_band" wavelength is a placeholder of 1.0 micron;
         # callers handling multiple real bands should call build_sed
         # once per band with real pivott wavelenghts instead. Kept

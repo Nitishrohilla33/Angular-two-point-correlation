@@ -15,10 +15,9 @@ from photutils.segmentation import detect_sources, detect_threshold, SourceCatal
 from photutils.utils import circular_footprint
 from scipy.spatial import cKDTree
 
-from inject_sources import get_psf_kernel
 
 # Source detection (mimiks SExtractor-style segmentation)
-def detect_in_image(data, weight, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0, psf_file=None):
+def detect_in_image(data, weight, psf_kernel, background_median=None, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0):
     """
     Detect sources in data above a per-pixel threshold derives from 
     the LOCAL background RMS (from the weight/RMS map), using phoutils
@@ -50,8 +49,9 @@ def detect_in_image(data, weight, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0, ps
     """
     from astropy.convolution import convolve
     coverage_mask = weight <= 0
-    mean, median, std = sigma_clipped_stats(data, mask=coverage_mask, sigma=3.0)
-    bkg_subtracted = data - median
+    if background_median is None:
+        _, background_median, _ = sigma_clipped_stats(data, mask=coverage_mask, sigma=3.0)
+    bkg_subtracted = data - background_median
 
     # Per-pixel local error map from the weight map ( standard
     # inverse-varience convention: error = 1/sqrt(weight)). 
@@ -59,19 +59,17 @@ def detect_in_image(data, weight, nsigma=2.0, npixels=5, smooth_fwhm_pix=2.0, ps
     good = ~coverage_mask         # Inverting
     error_map[good] = 1.0 / np.sqrt(weight[good])
 
-    kernel = get_psf_kernel(psf_fwhm_pix=smooth_fwhm_pix, psf_file=psf_file)
-
     # Fill masked pixels with 0 (post backgroung-subtraction, this is 
     # the expected background-only value) before convolving, rather 
     # than relying on NaN-interpolation, which can fail to fill large 
     # contiguous masked regions (e.g. a big masked star).
     filled_for_conv = np.where(coverage_mask, 0.0, bkg_subtracted)
-    smoothed = convolve(filled_for_conv, kernel, boundary="fill", fill_value=0.0)
+    smoothed = convolve(filled_for_conv, psf_kernel, boundary="fill", fill_value=0.0)
 
     # Smoothing reduces noice by a known factor (sum of kernel weights
     # in quadrature); scale the per-pixel error map down to match, so 
     # the threshold is evaluated consistently on the smoothed image.
-    kernel_array = kernel.array if hasattr(kernel, "array") else kernel
+    kernel_array = psf_kernel.array if hasattr(psf_kernel, "array") else psf_kernel
     kernel_noise_factor = np.sqrt(np.sum(kernel_array**2))
     smoothed_error_map = error_map * kernel_noise_factor
 

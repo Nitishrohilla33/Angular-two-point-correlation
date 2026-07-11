@@ -53,10 +53,11 @@ actually change injection, detection, or catalog selection.
 import os
 import warnings
 import numpy as np
+import pandas as pd
 from astropy.io import fits
 from astropy.wcs import WCS
 
-from inject_sources import inject_fake_sources
+from inject_sources import inject_fake_sources, get_psf_kernel
 from detect_recover import detect_in_image, match_recovered, apply_selection_cut
 from acf_estimator import (
     pair_counts,
@@ -103,16 +104,13 @@ def load_field(science_path, weight_path, verbose=False):
     return science_data, weight_data, wcs, zeropoint_ab
 
 # One injection-and-recovery round
-def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_fwhm_pix, 
+def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_kernel, 
                         n_inject, z_drop, M_UV_range, M_UV_cut, rng):
-    if os.path.exists(PSF_FITS):
-        psf_file = PSF_FITS
-    else:
-        psf_file = None
-    injected_data, truth = inject_fake_sources(science_data, weight_data, zeropoint_ab,
-                                               psf_fwhm_pix, n_inject, z_drop, M_UV_range, rng, psf_file=psf_file)
 
-    cat, _ = detect_in_image(injected_data, weight_data, psf_file=psf_file)
+    injected_data, truth = inject_fake_sources(science_data, weight_data, zeropoint_ab,
+                                               psf_kernel, n_inject, z_drop, M_UV_range, rng)
+
+    cat, _ = detect_in_image(injected_data, weight_data, psf_kernel)
     recovered, _ = match_recovered(cat, truth, match_radius_pix=2.0)
     keep = apply_selection_cut(truth, recovered, M_UV_cut=M_UV_cut)
 
@@ -122,7 +120,7 @@ def _one_injection_round(science_data, weight_data, zeropoint_ab, psf_fwhm_pix,
 # Build the full random catalog to the target size
 def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab, 
                          psf_fwhm_pix, n_target, z_drop, M_UV_range, 
-                         M_UV_cut, rng, n_inject_per_round=2000, max_rounds=200):
+                         M_UV_cut, rng, psf_fits_path=None, n_inject_per_round=2000, max_rounds=200):
     """
     Repeatedly injects and recovers fake sources until n_target random
     points have survived detection + selection, then returns their sky
@@ -131,9 +129,12 @@ def build_random_catalog(science_data, weight_data, wcs, zeropoint_ab,
     xs_kept, ys_kept = [], []
     n_have = 0
 
+    psf_file = psf_fits_path if (psf_fits_path and os.path.exists(psf_fits_path)) else None
+    psf_kernel = get_psf_kernel(psf_fwhm_pix=psf_fwhm_pix, psf_file=psf_file)
+
     for round_i in range(max_rounds):
         x_round, y_round = _one_injection_round(science_data, weight_data, zeropoint_ab,
-                                               psf_fwhm_pix, n_inject_per_round, z_drop,
+                                               psf_kernel, n_inject_per_round, z_drop,
                                                M_UV_range, M_UV_cut, rng)
         xs_kept.append(x_round)
         ys_kept.append(y_round)
@@ -264,10 +265,13 @@ if __name__ == "__main__":
     WEIGHT_FITS = "hlsp_ceers_jwst_nircam_fullceers_f277w_v1_wht.fits.gz"
     PSF_FITS = "psf_F277W.fits"
     PSF_FWHM_PIX = 3.0          # Approximate JWST/NIRCam F277W Gaussian PSF FWHM (pixels)
-    Z_DROP = 4.5
+    Z_DROP = 5.5
     M_UV_RANGE = (-24.0, -15.0)
     M_UV_CUT = -15.0
-    N_RANDOM_TARGET = 20 * 446  # N_r = 20 * N_d, per Sec. 4
+    
+    # import data file 
+    data_file = pd.read_csv(f"CEERS_z{Z_DROP}_selected.csv")        # Data file
+    N_RANDOM_TARGET = 20 * len(data_file)  # N_r = 20 * N_d, per Sec. 4
 
     # --- caching controls ---
     # Flip these to True (or delete the corresponding cache file) only
@@ -281,7 +285,9 @@ if __name__ == "__main__":
 
     # Real LBG catalog positions (RA, Dec in degrees) -- load your own
     # selected sample here. Placeholder arrays shown for structure only.
-    ra_data, dec_data = np.loadtxt("CEERS_z4.5_selected.csv", delimiter=",", skiprows=1, usecols=(0, 1), unpack=True)    # Data file
+
+    ra_data = data_file["RA"].to_numpy()
+    dec_data = data_file["DEC"].to_numpy()    
 
     # Only load FITS images and run injection if we actually need to
     # regenerate the random catalog -- loading multi-GB science/weight
@@ -373,5 +379,5 @@ if __name__ == "__main__":
         bbox=dict(facecolor="white", edgecolor="black")
     )
 
-    plt.savefig("results.png", dpi=300, bbox_inches="tight")
+    plt.savefig(f"results_z{Z_DROP}.png", dpi=300, bbox_inches="tight")
     plt.show()

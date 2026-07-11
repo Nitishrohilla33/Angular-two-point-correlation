@@ -88,8 +88,9 @@ Z_COL = "LP_Z_BEST"
 # Change these values as needed
 # ==========================================================
 
-z_min = 4.4
-z_max = 4.6
+z_min = 5.4
+z_max = 5.6
+z_bar = 0.5 * (z_min + z_max)
 
 mask = (
     (catalog[Z_COL] >= z_min) &
@@ -127,10 +128,10 @@ output["RA"] = ra
 output["DEC"] = dec
 output["LP_Z_BEST"] = z
 
-output.write("CEERS_z_selected.fits", overwrite=True)
-output.write("CEERS_z_selected.csv", overwrite=True)
+output.write(f"CEERS_z{z_bar}_selected.fits", overwrite=True)
+output.write(f"CEERS_z{z_bar}_selected.csv", overwrite=True)
 
 print("\nFiles saved successfully:")
-print("  CEERS_z_selected.fits")
-print("  CEERS_z_selected.csv")
+print(f"  CEERS_z{z_bar}_selected.fits")
+print(f"  CEERS_z{z_bar}_selected.csv")
 
